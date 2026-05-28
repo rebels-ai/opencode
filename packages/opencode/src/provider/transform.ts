@@ -433,11 +433,19 @@ export function message(msgs: ModelMessage[], model: Provider.Model, options: Re
   if (
     (model.providerID === "anthropic" ||
       model.providerID === "google-vertex-anthropic" ||
+      // nizina cost-optim: OpenRouter routes to multiple upstream providers
+      // (Anthropic, Gemini, DeepSeek, …). The breakpoint marker is harmless
+      // for upstream providers that ignore cache_control (DeepSeek uses
+      // automatic prefix-cache, no header needed) but enables OpenRouter's
+      // cache discount path for Anthropic+Gemini, which currently MISSES
+      // the gate entirely with `openrouter/anthropic/...` model ids.
+      model.providerID === "openrouter" ||
       model.api.id.includes("anthropic") ||
       model.api.id.includes("claude") ||
       model.id.includes("anthropic") ||
       model.id.includes("claude") ||
       model.api.npm === "@ai-sdk/anthropic" ||
+      model.api.npm === "@openrouter/ai-sdk-provider" ||
       model.api.npm === "@ai-sdk/alibaba") &&
     model.api.npm !== "@ai-sdk/gateway"
   ) {
@@ -1172,7 +1180,18 @@ export function options(input: {
   }
 
   if (input.model.providerID === "openrouter") {
-    result["prompt_cache_key"] = input.sessionID
+    // nizina cost-optim: previously this was input.sessionID, which mutates
+    // on every fresh session — defeating OpenRouter's prompt-cache forwarding
+    // (Anthropic/Gemini upstreams cache by prefix + key). For Anthropic-style
+    // explicit cache the key should be stable across spawns that share the
+    // same system-prompt prefix; for DeepSeek-style automatic prefix-cache
+    // the field is ignored. Stable per-process key — combine env model id
+    // with cwd hash so different projects don't share cache buckets, but
+    // identical agent+project spawns DO hit the same key.
+    const projectHash = (process.env.NIZINA_PROJECT_ID ?? process.cwd())
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 40)
+    result["prompt_cache_key"] = `nizina:${projectHash}`
   }
   if (input.model.api.npm === "@ai-sdk/gateway") {
     result["gateway"] = {

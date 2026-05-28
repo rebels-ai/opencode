@@ -56,7 +56,10 @@ export const layer = Layer.effect(
             `  Workspace root folder: ${ctx.worktree}`,
             `  Is directory a git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
             `  Platform: ${process.platform}`,
-            `  Today's date: ${new Date().toDateString()}`,
+            // nizina cost-optim: removed `Today's date` — the date flips at UTC
+            // midnight, busting DeepSeek/Anthropic prompt-prefix caches across
+            // every agent spawn that crosses the boundary. Agents needing the
+            // date can call a date tool or read it from per-request context.
             `</env>`,
           ].join("\n"),
         ]
