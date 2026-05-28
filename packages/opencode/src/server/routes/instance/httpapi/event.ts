@@ -40,7 +40,13 @@ function eventData(data: unknown): Sse.Event {
 }
 
 function eventResponse(bus: Bus.Interface) {
-  const events = bus.subscribeAll().pipe(Stream.takeUntil((event) => event.type === Bus.InstanceDisposed.type))
+  // Do NOT use takeUntil(InstanceDisposed) — that closed the SSE stream the
+  // moment the instance was disposed, causing the orch bridge to reconnect in
+  // a tight loop and never receive streaming message events or agent completion.
+  // Instead, let the PubSub shutdown (which fires after InstanceDisposed is
+  // published) close the stream naturally.  The InstanceDisposed event itself
+  // will flow through to clients so they know when to stop reconnecting.
+  const events = bus.subscribeAll()
   const heartbeat = Stream.tick("10 seconds").pipe(
     Stream.drop(1),
     Stream.map(() => ({ id: Bus.createID(), type: "server.heartbeat", properties: {} })),
