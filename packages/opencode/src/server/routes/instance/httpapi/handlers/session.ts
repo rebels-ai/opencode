@@ -3,6 +3,7 @@ import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
 import { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
+import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { SessionShare } from "@/share/session"
@@ -48,6 +49,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const compactSvc = yield* SessionCompaction.Service
     const runState = yield* SessionRunState.Service
     const agentSvc = yield* Agent.Service
+    const mcpSvc = yield* MCP.Service
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
@@ -382,6 +384,39 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* session.updatePart(payload)
     })
 
+    // Returns the resolved tool set for a session: builtins + MCP tools whose
+    // server has already completed the tools/list handshake.
+    // Orch polls this until mcp__nizina__* entries appear before dispatching
+    // front kickoff.  The sessionID param is validated (404 if unknown) even
+    // though tools are currently scoped to the instance, not per-session.
+    const tools = Effect.fn("SessionHttpApi.tools")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
+
+      const mcpTools = yield* mcpSvc.tools()
+
+      const result: Array<{ name: string; source: string; description?: string }> = [
+        // Well-known builtins exposed so callers can assert toolset completeness
+        { name: "Read", source: "builtin" },
+        { name: "Write", source: "builtin" },
+        { name: "Edit", source: "builtin" },
+        { name: "Bash", source: "builtin" },
+        { name: "Glob", source: "builtin" },
+        { name: "Grep", source: "builtin" },
+      ]
+
+      for (const [toolName] of Object.entries(mcpTools)) {
+        // opencode key format: sanitised(serverName) + "_" + sanitised(toolName)
+        // Derive source label from the prefix before the first underscore
+        const underscoreIdx = toolName.indexOf("_")
+        const serverPart = underscoreIdx > -1 ? toolName.slice(0, underscoreIdx) : toolName
+        result.push({ name: toolName, source: `mcp:${serverPart}` })
+      }
+
+      return { tools: result }
+    })
+
     return handlers
       .handle("list", list)
       .handle("status", status)
@@ -410,5 +445,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("deleteMessage", deleteMessage)
       .handle("deletePart", deletePart)
       .handle("updatePart", updatePart)
+      .handle("tools", tools)
   }),
 )

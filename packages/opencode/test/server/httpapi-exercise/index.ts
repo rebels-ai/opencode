@@ -1002,6 +1002,25 @@ const scenarios: Scenario[] = [
       "status",
     ),
   http.protected
+    .get("/session/{sessionID}/tools", "session.tools")
+    .seeded((ctx) => ctx.session({ title: "Tools session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/tools", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(Array.isArray(body.tools), "tools should be an array")
+      check(body.tools.some((t: { name: string }) => t.name === "Bash"), "builtins should include Bash")
+    }),
+  http.protected
+    .get("/session/{sessionID}/tools", "session.tools.missing")
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/tools", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+    }))
+    .status(404),
+  http.protected
     .post("/session/{sessionID}/abort", "session.abort")
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Abort session" }))

@@ -98,7 +98,15 @@ export const SessionPaths = {
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
   updatePart: `${root}/:sessionID/message/:messageID/part/:partID`,
+  tools: `${root}/:sessionID/tools`,
 } as const
+
+export const SessionToolInfo = Schema.Struct({
+  name: Schema.String,
+  // "builtin" for built-in tools, "mcp:<serverName>" for MCP-sourced tools
+  source: Schema.String,
+  description: Schema.optional(Schema.String),
+}).annotate({ identifier: "SessionToolInfo" })
 
 export const SessionApi = HttpApi.make("session")
   .add(
@@ -436,6 +444,24 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.get("tools", SessionPaths.tools, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(
+            Schema.Struct({ tools: Schema.Array(SessionToolInfo) }),
+            "Resolved tool set for this session",
+          ),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.tools",
+            summary: "List session tools",
+            description:
+              "Return the resolved tool set (builtins + MCP-server tools) available for this session. " +
+              "Only includes MCP tools whose server has completed tools/list handshake. " +
+              "Poll until mcp__nizina__* entries appear to ensure the nizina MCP is ready.",
           }),
         ),
       )
