@@ -253,6 +253,9 @@ export type CreateInput = Types.DeepMutable<Schema.Schema.Type<typeof CreateInpu
 export const ForkInput = Schema.Struct({
   sessionID: SessionID,
   messageID: Schema.optional(MessageID),
+  // When provided, the forked session uses this model instead of inheriting
+  // the parent's frozen model snapshot.  Pass to force a fresh provider on fork.
+  model: Schema.optional(Model),
 })
 export const GetInput = SessionID
 export const ChildrenInput = SessionID
@@ -456,7 +459,7 @@ export interface Interface {
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
   }) => Effect.Effect<Info>
-  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
+  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID; model?: Schema.Schema.Type<typeof Model> }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -665,7 +668,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       })
     })
 
-    const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
+    const fork = Effect.fn("Session.fork")(function* (input: {
+      sessionID: SessionID
+      messageID?: MessageID
+      // When set, the fork uses this model instead of inheriting any frozen
+      // model from the parent session row.  A .env model switch + rematerialise
+      // won't reach existing sessions; callers pass the new model here.
+      model?: Schema.Schema.Type<typeof Model>
+    }) {
       const ctx = yield* InstanceState.context
       const original = yield* get(input.sessionID)
       const title = getForkedTitle(original.title)
@@ -674,6 +684,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         path: sessionPath(ctx.worktree, ctx.directory),
         workspaceID: original.workspaceID,
         title,
+        // Explicitly pass model so the fork isn't stuck on a frozen provider.
+        // If input.model is undefined the fork starts with no pinned model
+        // (picks up the project default on first prompt — same as a fresh session).
+        model: input.model,
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
