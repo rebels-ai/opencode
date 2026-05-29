@@ -40,12 +40,13 @@ function eventData(data: unknown): Sse.Event {
 }
 
 function eventResponse(bus: Bus.Interface) {
-  // Do NOT use takeUntil(InstanceDisposed) — that closed the SSE stream the
-  // moment the instance was disposed, causing the orch bridge to reconnect in
-  // a tight loop and never receive streaming message events or agent completion.
-  // Instead, let the PubSub shutdown (which fires after InstanceDisposed is
-  // published) close the stream naturally.  The InstanceDisposed event itself
-  // will flow through to clients so they know when to stop reconnecting.
+  // Intentionally NOT halting the stream on instance disposal — that previously
+  // closed the SSE stream the moment the instance was disposed, causing the orch
+  // bridge to reconnect in a tight loop and never receive streaming message
+  // events or agent completion. Instead, let the PubSub shutdown (which fires
+  // after the disposal event is published) close the stream naturally. The
+  // disposal event itself flows through to clients so they know when to stop
+  // reconnecting.
   const events = bus.subscribeAll()
   const heartbeat = Stream.tick("10 seconds").pipe(
     Stream.drop(1),
