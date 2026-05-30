@@ -427,30 +427,7 @@ const live: Layer.Layer<
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 
-            // STREAM-INACTIVITY WATCHDOG (nizina): some provider streams (notably
-            // OpenRouter reasoning models — xiaomi/kimi/deepseek) stop emitting
-            // after a tool result and never produce a finish, so the per-step
-            // Stream.runDrain in the processor blocks FOREVER — the agent turn
-            // never finalizes (tool part stuck "running"), stalling the whole
-            // pipeline. If no stream event arrives for INACTIVITY_MS we abort the
-            // request; that interruption flows through the processor's existing
-            // onInterrupt → graceful halt, so the turn finalizes (errored) and the
-            // loop proceeds. Generous (5 min) so a slow-but-active tool (e.g.
-            // codeboarding/docker) isn't killed — only a truly silent stall is.
-            const INACTIVITY_MS = Number(process.env.NIZINA_STREAM_INACTIVITY_MS ?? 300_000)
-            let lastActivity = Date.now()
-            const timer = setInterval(() => {
-              if (Date.now() - lastActivity > INACTIVITY_MS && !ctrl.signal.aborted) {
-                console.warn(`[nizina] stream inactivity ${INACTIVITY_MS}ms — aborting stalled turn`)
-                ctrl.abort()
-              }
-            }, 15_000)
-            if (typeof timer.unref === "function") timer.unref()
-            yield* Effect.addFinalizer(() => Effect.sync(() => clearInterval(timer)))
-
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
-              Stream.tap(() => Effect.sync(() => { lastActivity = Date.now() })),
-            )
+            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
           }),
         ),
       )
