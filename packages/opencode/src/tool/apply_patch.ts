@@ -198,7 +198,10 @@ export const ApplyPatchTool = Tool.define(
       }))
 
       // Check permissions if needed
-      const relativePaths = fileChanges.map((c) => path.relative(instance.worktree, c.filePath).replaceAll("\\", "/"))
+      // A move writes its destination, so path-scoped edit rules must see both ends.
+      const relativePaths = fileChanges
+        .flatMap((c) => (c.movePath ? [c.filePath, c.movePath] : [c.filePath]))
+        .map((p) => path.relative(instance.worktree, p).replaceAll("\\", "/"))
       yield* ctx.ask({
         permission: "edit",
         patterns: relativePaths,

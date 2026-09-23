@@ -176,6 +176,51 @@ describe("tool.apply_patch freeform", () => {
     })
   })
 
+  test("move asks edit permission for BOTH the source and the destination", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx, calls } = makeCtx()
+
+    await WithInstance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        await fs.mkdir(path.join(fixture.path, "docs"), { recursive: true })
+        await fs.writeFile(path.join(fixture.path, "docs", "x.json"), "old\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: docs/x.json\n*** Move to: src/x.ts\n@@\n-old\n+new\n*** End Patch"
+        await execute({ patchText }, ctx)
+
+        expect(calls.length).toBe(1)
+        expect(calls[0].permission).toBe("edit")
+        expect(calls[0].patterns.toSorted()).toEqual(["docs/x.json", "src/x.ts"])
+      },
+    })
+  })
+
+  test("move to a denied destination is refused and leaves the source intact", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const denying: ToolCtx = {
+      ...baseCtx,
+      ask: (input) =>
+        input.patterns.some((p) => !p.startsWith("docs/")) ? Effect.die(new Error("denied")) : Effect.void,
+    }
+
+    await WithInstance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const source = path.join(fixture.path, "docs", "x.json")
+        await fs.mkdir(path.dirname(source), { recursive: true })
+        await fs.writeFile(source, "old\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: docs/x.json\n*** Move to: src/x.ts\n@@\n-old\n+new\n*** End Patch"
+        await expect(execute({ patchText }, denying)).rejects.toThrow()
+        expect(await fs.readFile(source, "utf-8")).toBe("old\n")
+        await expect(fs.stat(path.join(fixture.path, "src", "x.ts"))).rejects.toThrow()
+      },
+    })
+  })
+
   test("applies multiple hunks to one file", async () => {
     await using fixture = await tmpdir()
     const { ctx } = makeCtx()
