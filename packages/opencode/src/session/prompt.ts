@@ -536,7 +536,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         agent: input.agent.name,
         messages: input.messages,
         metadata: (val) =>
-          input.processor.updateToolCall(options.toolCallId, (match) => {
+          plugin.trigger("tool.output.redact", { stage: "metadata" }, { value: val }).pipe(
+            Effect.andThen(() => input.processor.updateToolCall(options.toolCallId, (match) => {
             if (!["running", "pending"].includes(match.state.status)) return match
             return {
               ...match,
@@ -548,7 +549,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 time: { start: Date.now() },
               },
             }
-          }),
+          })),
+          ),
         ask: (req) =>
           permission
             .ask({
@@ -773,6 +775,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           messages: msgs,
           metadata: (val: { title?: string; metadata?: Record<string, any> }) =>
             Effect.gen(function* () {
+              yield* plugin.trigger("tool.output.redact", { stage: "metadata" }, { value: val })
               part = yield* sessions.updatePart({
                 ...part,
                 type: "tool",

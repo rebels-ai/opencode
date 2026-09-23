@@ -278,6 +278,16 @@ export interface Hooks {
       metadata: any
     },
   ) => Promise<void>
+  /**
+   * Redact tool output at the points opencode persists it BEFORE `tool.execute.after`
+   * runs: streaming `ctx.metadata` previews (stage "metadata", value = `{ title, metadata }`,
+   * mutate in place) and truncation spill files (stage "spill", value = the full text,
+   * replace `output.value`). Lets a plugin keep secrets out of the sessions DB and disk.
+   */
+  "tool.output.redact"?: (
+    input: { stage: "metadata" | "spill" },
+    output: { value: unknown },
+  ) => Promise<void>
   "experimental.chat.messages.transform"?: (
     input: {},
     output: {

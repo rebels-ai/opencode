@@ -9,6 +9,7 @@ import { Identifier } from "../id/id"
 import * as Log from "@opencode-ai/core/util/log"
 import { ToolID } from "./schema"
 import { TRUNCATION_DIR } from "./truncation-dir"
+import { Plugin } from "@/plugin"
 
 const log = Log.create({ service: "truncation" })
 const RETENTION = Duration.days(7)
@@ -34,6 +35,8 @@ function hasTaskTool(agent?: Agent.Info) {
 export interface Interface {
   readonly cleanup: () => Effect.Effect<void>
   readonly write: (text: string) => Effect.Effect<string>
+  /** Re-run spill redaction over a file that was streamed to disk chunk by chunk. */
+  readonly redactFile: (file: string) => Effect.Effect<void>
   /**
    * Returns output unchanged when it fits within the limits, otherwise writes the full text
    * to the truncation directory and returns a preview plus a hint to inspect the saved file.
@@ -66,11 +69,28 @@ export const layer = Layer.effect(
       }
     })
 
+    // Optional: Truncate also runs outside an instance (no plugins) — then text is unchanged.
+    const redact = Effect.fn("Truncate.redact")(function* (text: string) {
+      const plugin = yield* Effect.serviceOption(Plugin.Service)
+      if (Option.isNone(plugin)) return text
+      const out = yield* plugin.value
+        .trigger("tool.output.redact", { stage: "spill" }, { value: text as unknown })
+        .pipe(Effect.catch(() => Effect.succeed({ value: text as unknown })))
+      return typeof out.value === "string" ? out.value : text
+    })
+
     const write = Effect.fn("Truncate.write")(function* (text: string) {
       const file = path.join(TRUNCATION_DIR, ToolID.ascending())
       yield* fs.ensureDir(TRUNCATION_DIR).pipe(Effect.orDie)
-      yield* fs.writeFileString(file, text).pipe(Effect.orDie)
+      yield* fs.writeFileString(file, yield* redact(text)).pipe(Effect.orDie)
       return file
+    })
+
+    const redactFile = Effect.fn("Truncate.redactFile")(function* (file: string) {
+      const text = yield* fs.readFileString(file).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (text === undefined) return
+      const next = yield* redact(text)
+      if (next !== text) yield* fs.writeFileString(file, next).pipe(Effect.catch(() => Effect.void))
     })
 
     const limits = Effect.fn("Truncate.limits")(function* () {
@@ -151,7 +171,7 @@ export const layer = Layer.effect(
       Effect.forkScoped,
     )
 
-    return Service.of({ cleanup, write, output, limits })
+    return Service.of({ cleanup, write, redactFile, output, limits })
   }),
 )
 

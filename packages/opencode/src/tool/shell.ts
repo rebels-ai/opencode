@@ -564,6 +564,7 @@ export const ShellTool = Tool.define(
               stream.on("error", () => resolve())
             }),
         )
+        yield* trunc.redactFile(file)
       }
 
       return {
